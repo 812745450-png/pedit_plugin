@@ -2,6 +2,8 @@
 
 Pedit is a local Codex plugin for visual image-editing workflows. It opens a canvas inside Codex, lets users manage image projects and versions, and hands image-editing tasks back to Codex through the Pedit MCP bridge.
 
+中文说明：See [README.zh-CN.md](./README.zh-CN.md).
+
 ## What This Plugin Includes
 
 - A Codex plugin manifest in `.codex-plugin/plugin.json`
