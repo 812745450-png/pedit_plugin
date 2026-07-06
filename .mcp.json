@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "pedit": {
+      "command": "node",
+      "args": ["./packages/server/dist/index.js"],
+      "cwd": "."
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "pedit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "validate:plugin": "node scripts/validate-plugin.mjs",
+    "pack:release": "node scripts/pack-release.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}

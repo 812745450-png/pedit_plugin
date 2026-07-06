@@ -1,0 +1,19 @@
+{
+  "name": "@pedit/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "prebuild": "pnpm --filter @pedit/core build",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pedit/core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  }
+}

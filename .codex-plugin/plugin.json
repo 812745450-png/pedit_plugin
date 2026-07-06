@@ -1,0 +1,34 @@
+{
+  "name": "pedit",
+  "version": "0.1.0+codex.20260630013434",
+  "description": "Pedit is an in-development Codex plugin for visual editing workflows. Aliases: @pedit, @Pedit. When invoked from the composer, open the Pedit canvas immediately in the Codex sidebar with pedit_open_canvas.",
+  "author": {
+    "name": "Pedit contributors"
+  },
+  "keywords": [
+    "pedit",
+    "photo editing",
+    "image editing",
+    "canvas",
+    "version graph"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Pedit",
+    "shortDescription": "Open a visual image-editing canvas in Codex.",
+    "longDescription": "Pedit provides a local MCP bridge for visual image-editing workflows. When the user invokes @Pedit or asks to use Pedit, immediately call pedit_open_canvas and open the returned canvasUrl in the Codex sidebar in-app browser. Then operate upload, view, edit, version graph, export, and generation task workflows from the canvas.",
+    "developerName": "Pedit contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Local MCP bridge",
+      "Canvas launch",
+      "Visual edit workflow",
+      "Version graph management"
+    ],
+    "defaultPrompt": [
+      "Open the Pedit canvas in the sidebar"
+    ]
+  },
+  "mcpServers": "./.mcp.json",
+  "apps": "./.app.json"
+}
