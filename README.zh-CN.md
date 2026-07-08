@@ -119,3 +119,11 @@ docs/validation/
 Pedit 目前还是 alpha 版本，适合小范围试用和继续迭代。核心流程已经可以跑通，但安装、授权、插件启用、Codex MCP 工具加载等步骤还可能受本机环境影响。
 
 如果你只是想试用，建议先从 GitHub Release 下载 `pedit-release.zip`，或直接 clone 仓库后按上面的步骤构建。
+
+## 产品文档
+
+- [Pedit PRD：面向 AI 图片编辑工作流的 Codex 本地插件](./docs/PRD.zh-CN.md)
+- [Pedit 产品架构设计](./docs/product/03_product_architecture_pedit.md)
+- [Pedit AI Coding 复盘](./docs/product/04_ai_coding_retrospective_pedit.md)
+- [Pedit 功能说明与用户手册](./docs/product/05_user_guide_pedit.md)
+- [从 Prompt 修图到 AI 图片编辑工作流：Pedit 项目复盘](./docs/product/07_case_study_article_pedit.md)

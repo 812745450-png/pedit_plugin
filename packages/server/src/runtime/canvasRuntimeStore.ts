@@ -78,6 +78,7 @@ export interface RuntimeGenerationTask {
   qualityGate?: RuntimeQualityGate;
   handoffChannel?: RuntimeHandoffChannel;
   handoffPrompt?: string;
+  handoffCopiedAt?: string;
   resultNodeId?: string;
   error: string | null;
   workerStage?: "starting" | "processing" | "writing" | "validating" | "cancelling";
@@ -540,29 +541,73 @@ const normalizeRuntimeHandoffTask = (
 const buildRuntimeManualHandoffPrompt = (task: RuntimeGenerationTask) =>
   [
     "Pedit Codex Handoff",
+    "",
+    "## 1. 任务索引",
+    `task_id: ${task.id}`,
     `taskId=${task.id}`,
+    "project_name: (claim task to resolve)",
+    `current_version_id: ${task.sourceNodeIds.join(", ") || "(missing)"}`,
+    `task_type: ${task.type}`,
     `type=${task.type}`,
+    "executor_type: codex_handoff",
+    `selection_semantics: ${task.selectionSemantics ?? "soft_local"}`,
     task.selectionSemantics ? `selectionSemantics=${task.selectionSemantics}` : null,
+    `has_regions: ${task.regions?.length ? "true" : "false"}`,
     `hasRegions=${task.regions?.length ? "true" : "false"}`,
+    `reference_count: ${task.referenceImages?.length ?? 0}`,
     `referenceCount=${task.referenceImages?.length ?? 0}`,
+    "",
+    "## 2. 当前图片",
+    `source_node_ids: ${task.sourceNodeIds.join(", ") || "(missing)"}`,
+    "source image binary data is not embedded in this handoff. Resolve it from the claimed task or pedit_export_current_image.",
+    "",
+    "## 3. 用户原始指令",
+    task.instruction,
+    "",
+    "## 4. 选区信息",
     handoffSelectionSemanticsInstruction(task.selectionSemantics),
+    task.regions?.length
+      ? task.regions
+          .map(
+            (region, index) =>
+              `${index + 1}. id=${region.id}; label=${region.label}; instruction=${region.instruction || "(empty)"}; mask=${region.maskPath || region.maskUrl || region.maskStatus || "not_ready"}`
+          )
+          .join("\n")
+      : "本任务没有用户圈选区域：请按整图修图流程处理，不要把局部圈选当成限制，也不要为了处理而手工造 mask/选区。",
+    "",
+    "## 5. 参考图信息",
     task.referenceImages?.length
       ? "本任务包含参考图：请在 claim 后读取 task.referenceImages[].imageUrl，不要只根据参考图文件名猜测内容。"
-      : null,
+      : "无参考图。",
+    "",
+    "## 6. 需要保留的内容",
+    "- 保留源图主体身份、构图、相机视角、分辨率、清晰度、光照、材质和照片风格。",
+    task.regions?.length
+      ? "- 选区外内容应尽量保持稳定；contextual_inpaint 任务允许窄范围自然过渡。"
+      : "- 没有硬性局部选区时，按整图编辑理解用户意图，但仍保留无关细节。",
+    "",
+    "## 7. 输出要求",
+    "- 这是图片编辑任务，不是整张重绘；做满足用户目标的最小充分修改。",
+    "- image2 原始输出只能作为中间预览；如果你进行了放大、融合、裁剪、后处理或质量修复，必须把最终候选图重新展示/验收。",
+    "- 最终写回 Pedit 的图片必须是你最终展示和验收的同一张图片，不要让 Codex 中的预览图和 Pedit 结果不一致。",
+    "- 写回前请自检画质、尺寸、主体一致性、选区准确性和整体和谐度；不合格不要写入版本树。",
+    "",
+    "## 8. 结果回写要求",
+    "- 请接手这个 Pedit 修图任务：先调用 pedit_get_canvas_state，再调用 pedit_claim_next_task。",
+    task.regions?.length && task.selectionSemantics === "strict_local"
+      ? "- 如果是 strict_local 局部改色任务，请先调用 pedit_run_local_fast_path；如果 ok=true，结果已写回，无需再调用 image2。"
+      : "- 无选区或非 strict_local 任务不要先走局部 fast path；请直接按 sourceNodeIds 和 codexPrompt 使用整图 image2 编辑流程。",
+    task.regions?.length
+      ? "- 如果 pedit_run_local_fast_path 返回 unsupported，或任务不是可支持的局部改色，再按 sourceNodeIds、regions、maskPath/maskUrl、codexPrompt 调用 Codex image2 完成修图。"
+      : "- 如果用户没有圈选区域，regions/maskPath/maskUrl 为空是正常情况；请不要因此退化成手工选区流程。",
+    "- 完成后调用 pedit_write_generation_result 写回结果，Pedit 会自动监听并生成新版本节点。",
+    "- 必填字段：taskId、imageUrl、name、summary、edgeLabel。",
+    "",
+    "## 9. 异常处理",
+    "- 如果缺少 task_id、找不到源图、图片保存失败或结果不合格，请写入 failed/error，不要创建结果版本节点。",
     !task.regions?.length
       ? "本任务没有用户圈选区域：请按整图修图流程处理，不要把局部圈选当成限制，也不要为了处理而手工造 mask/选区。"
-      : null,
-    "请接手这个 Pedit 修图任务：先调用 pedit_get_canvas_state，再调用 pedit_claim_next_task。",
-    task.regions?.length && task.selectionSemantics === "strict_local"
-      ? "如果是 strict_local 局部改色任务，请先调用 pedit_run_local_fast_path；如果 ok=true，结果已写回，无需再调用 image2。"
-      : "无选区或非 strict_local 任务不要先走局部 fast path；请直接按 sourceNodeIds 和 codexPrompt 使用整图 image2 编辑流程。",
-    task.regions?.length
-      ? "如果 pedit_run_local_fast_path 返回 unsupported，或任务不是可支持的局部改色，再按 sourceNodeIds、regions、maskPath/maskUrl、codexPrompt 调用 Codex image2 完成修图。"
-      : "如果用户没有圈选区域，regions/maskPath/maskUrl 为空是正常情况；请不要因此退化成手工选区流程。",
-    "image2 原始输出只能作为中间预览；如果你进行了放大、融合、裁剪、后处理或质量修复，必须把最终候选图重新展示/验收。",
-    "最终写回 Pedit 的图片必须是你最终展示和验收的同一张图片，不要让 Codex 中的预览图和 Pedit 结果不一致。",
-    "写回前请自检画质、尺寸、主体一致性、选区准确性和整体和谐度；不合格不要写入版本树。",
-    "完成后调用 pedit_write_generation_result 写回结果，Pedit 会自动监听并生成新版本节点。"
+      : null
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");

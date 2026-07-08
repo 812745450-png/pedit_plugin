@@ -62,6 +62,14 @@ Validate the Codex plugin structure:
 pnpm validate:plugin
 ```
 
+## Product Docs
+
+- [PRD](./docs/PRD.zh-CN.md)
+- [Product architecture](./docs/product/03_product_architecture_pedit.md)
+- [AI Coding retrospective](./docs/product/04_ai_coding_retrospective_pedit.md)
+- [User guide](./docs/product/05_user_guide_pedit.md)
+- [Case study](./docs/product/07_case_study_article_pedit.md)
+
 ## Release Package
 
 Create a clean zip package for sharing:

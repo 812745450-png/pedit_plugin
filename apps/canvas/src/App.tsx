@@ -946,8 +946,16 @@ export function App() {
         taskId: id,
         type: input.type,
         instruction: input.instruction,
+        projectName: currentProjectName,
+        currentVersionId:
+          input.sourceNodes.length === 1
+            ? input.sourceNodes[0].id
+            : input.sourceNodes.map((node) => node.id).join(", "),
+        sourceNodes: input.sourceNodes,
         selectionSemantics,
         hasRegions,
+        regions: input.regions,
+        referenceImages: input.referenceImages,
         referenceCount: input.referenceImages?.length ?? 0
       }),
       codexPrompt: buildCodexPrompt({
@@ -991,6 +999,7 @@ export function App() {
             status: "pending",
             error: null,
             resultNodeId: undefined,
+            handoffCopiedAt: undefined,
             updatedAt
           };
         },
@@ -1020,6 +1029,19 @@ export function App() {
 
       try {
         await navigator.clipboard.writeText(task.handoffPrompt);
+        const copiedAt = new Date().toISOString();
+        const nextTasks = tasksRef.current.map((candidate) =>
+          candidate.id === taskId
+            ? {
+                ...candidate,
+                handoffCopiedAt: copiedAt,
+                updatedAt: copiedAt
+              }
+            : candidate
+        );
+        setTasks(nextTasks);
+        tasksRef.current = nextTasks;
+        await persistProject(projectNodes, uiState, nextTasks);
         setToast("交接指令已复制。请切回 Codex 输入框，粘贴并发送。");
       } catch {
         setToast("复制失败。请展开交接指令后手动选中复制。");
@@ -2094,9 +2116,43 @@ function ImageBoard({ node, label }: { node: ImageProjectNode; label: string }) 
     <div className="image-board" style={{ left: 180, top: 72 }}>
       <div className="image-shell">
         <span className="image-label">{label}</span>
-        <img src={node.imageUrl} alt={node.name} />
+        <AssetImage src={node.imageUrl} alt={node.name} />
       </div>
     </div>
+  );
+}
+
+function AssetImage({
+  src,
+  alt,
+  draggable
+}: {
+  src: string;
+  alt: string;
+  draggable?: boolean;
+}) {
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => {
+    setMissing(false);
+  }, [src]);
+
+  if (missing) {
+    return (
+      <div className="asset-missing" role="alert">
+        <strong>图片资源不可用</strong>
+        <span>{alt || "当前版本图片"} 无法加载，请重新上传或切换到其他版本。</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      draggable={draggable}
+      onError={() => setMissing(true)}
+    />
   );
 }
 
@@ -2128,7 +2184,7 @@ function EditableImage({
         <span className="image-label">
           {lassoActive ? "按住拖动手动画选区" : "拖动图片移动画布"}
         </span>
-        <img src={node.imageUrl} alt={node.name} draggable={false} />
+        <AssetImage src={node.imageUrl} alt={node.name} draggable={false} />
         <svg
           className="mask-layer"
           viewBox="0 0 100 100"
@@ -2208,11 +2264,11 @@ function SplitCompare({
     <div className="compare-board" style={{ left: 120, top: 72 }}>
       <div className="image-shell">
         <span className="image-label">上一版本</span>
-        <img src={parent.imageUrl} alt={parent.name} />
+        <AssetImage src={parent.imageUrl} alt={parent.name} />
       </div>
       <div className="image-shell">
         <span className="image-label">当前版本</span>
-        <img src={node.imageUrl} alt={node.name} />
+        <AssetImage src={node.imageUrl} alt={node.name} />
       </div>
     </div>
   );

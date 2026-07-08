@@ -56,6 +56,7 @@ export interface CanvasGenerationTask {
   qualityGate?: CanvasQualityGate;
   handoffChannel?: CanvasHandoffChannel;
   handoffPrompt?: string;
+  handoffCopiedAt?: string;
   resultNodeId?: string;
   error: string | null;
   workerStage?: "starting" | "processing" | "writing" | "validating" | "cancelling";
@@ -609,42 +610,160 @@ export function buildManualHandoffPrompt(input: {
   taskId: string;
   type: CanvasGenerationTaskType;
   instruction: string;
+  projectName?: string;
+  currentVersionId?: string;
+  sourceNodes?: ImageProjectNode[];
   selectionSemantics?: CanvasSelectionSemantics;
   hasRegions?: boolean;
+  regions?: CanvasGenerationTask["regions"];
+  referenceImages?: CanvasReferenceImage[];
   referenceCount?: number;
 }) {
   const selectionSemantics =
     input.selectionSemantics ?? inferSelectionSemantics(input.instruction, input.type);
   const hasRegions = Boolean(input.hasRegions);
-  const referenceCount = input.referenceCount ?? 0;
+  const referenceImages = input.referenceImages ?? [];
+  const referenceCount = input.referenceCount ?? referenceImages.length;
+  const sourceNodes = input.sourceNodes ?? [];
+  const currentVersionId =
+    input.currentVersionId ??
+    (sourceNodes.length === 1
+      ? sourceNodes[0].id
+      : sourceNodes.length > 1
+        ? sourceNodes.map((node) => node.id).join(", ")
+        : "(claim task to resolve)");
+  const regionLines =
+    input.regions?.map(
+      (region, index) =>
+        `${index + 1}. id=${region.id}; label=${region.label}; ${describeRegionGeometry(region)}; instruction=${region.instruction || "(empty)"}; mask=${region.maskPath || region.maskUrl || region.maskStatus || "not_ready"}`
+    ) ?? [];
+  const sourceLines = sourceNodes.length
+    ? sourceNodes.map(
+        (node, index) =>
+          `${index + 1}. id=${node.id}; name=${node.name}; kind=${node.kind}; image_ref=${handoffImageReference(node.imageUrl)}`
+      )
+    : [
+        "1. sourceNodeIds are stored on the claimed task. Use pedit_get_canvas_state, pedit_claim_next_task, or pedit_export_current_image to resolve the active image."
+      ];
+  const referenceLines = referenceImages.length
+    ? referenceImages.map(
+        (reference, index) =>
+          `${index + 1}. name=${reference.name}; image_ref=${handoffImageReference(reference.imageUrl)}; read task.referenceImages[${index}].imageUrl for the actual binary.`
+      )
+    : ["无参考图。"];
+  const preserveRequirements = [
+    "保留源图主体身份、构图、相机视角、分辨率、清晰度、光照、材质和照片风格。",
+    selectionPreserveRequirement(selectionSemantics, hasRegions),
+    referenceCount > 0
+      ? "参考图只用于用户要求的维度；不要因为参考图改变无关主体、构图或背景。"
+      : ""
+  ].filter(Boolean);
+  const outputRequirements = [
+    "这是图片编辑任务，不是整张重绘；做满足用户目标的最小充分修改。",
+    input.type === "region_edit"
+      ? "局部/整图编辑结果应保持与源图一致的画布尺寸；不要裁剪、拉伸、降采样或额外加边框。"
+      : "多图合成结果应自然、统一、无明显拼贴感，并保留任务要求的主体关系。",
+    "image2 原始输出只能作为中间预览；如果你进行了放大、融合、裁剪、后处理或质量修复，必须把最终候选图重新展示/验收。",
+    "最终写回 Pedit 的图片必须是你最终展示和验收的同一张图片，不要让 Codex 中的预览图和 Pedit 结果不一致。",
+    "写回前请自检画质、尺寸、主体一致性、选区准确性和整体和谐度；不合格不要写入版本树。"
+  ];
+  const writebackRequirements = [
+    "先调用 pedit_get_canvas_state，再调用 pedit_claim_next_task，确认 claimed task.id 与下方 task_id 一致。",
+    hasRegions && selectionSemantics === "strict_local"
+      ? "strict_local 局部改色任务请先调用 pedit_run_local_fast_path；如果 ok=true，结果已写回，无需再调用 image2。"
+      : "无选区或非 strict_local 任务不要先走局部 fast path；请直接按 sourceNodeIds 和 codexPrompt 使用整图 image2 编辑流程。",
+    hasRegions
+      ? "如果 fast path unsupported，或任务不是可支持的局部改色，再按 sourceNodeIds、regions、maskPath/maskUrl、codexPrompt 调用 Codex image2 完成修图。"
+      : "如果用户没有圈选区域，regions/maskPath/maskUrl 为空是正常情况；请不要因此退化成手工选区流程。",
+    "完成后调用 pedit_write_generation_result 写回结果；必填字段：taskId、imageUrl、name、summary、edgeLabel。",
+    "如果缺少 task_id、找不到源图、图片保存失败或结果不合格，请写入 failed/error，不要创建结果版本节点。"
+  ];
 
   return [
     "Pedit Codex Handoff",
+    "",
+    "## 1. 任务索引",
+    `task_id: ${input.taskId}`,
     `taskId=${input.taskId}`,
+    `project_name: ${input.projectName || "未命名项目"}`,
+    `current_version_id: ${currentVersionId}`,
+    `task_type: ${input.type}`,
     `type=${input.type}`,
+    `executor_type: codex_handoff`,
+    `selection_semantics: ${selectionSemantics}`,
     `selectionSemantics=${selectionSemantics}`,
+    `has_regions: ${hasRegions ? "true" : "false"}`,
     `hasRegions=${hasRegions ? "true" : "false"}`,
+    `reference_count: ${referenceCount}`,
     `referenceCount=${referenceCount}`,
+    "",
+    "## 2. 当前图片",
+    sourceLines.join("\n"),
+    "source image binary data is not embedded in this handoff. Resolve it from the claimed task or export endpoint.",
+    "",
+    "## 3. 用户原始指令",
+    input.instruction,
+    "",
+    "## 4. 选区信息",
     handoffSelectionSemanticsInstruction(selectionSemantics),
+    hasRegions
+      ? regionLines.join("\n")
+      : "本任务没有用户圈选区域：请按整图修图流程处理，不要把局部圈选当成限制，也不要为了处理而手工造 mask/选区。",
+    "",
+    "## 5. 参考图信息",
+    referenceLines.join("\n"),
     referenceCount > 0
       ? "本任务包含参考图：请在 claim 后读取 task.referenceImages[].imageUrl，不要只根据参考图文件名猜测内容。"
-      : "",
+      : "无参考图时，不要臆造参考风格或参考主体。",
+    "",
+    "## 6. 需要保留的内容",
+    preserveRequirements.map((item) => `- ${item}`).join("\n"),
+    "",
+    "## 7. 输出要求",
+    outputRequirements.map((item) => `- ${item}`).join("\n"),
+    "",
+    "## 8. 结果回写要求",
+    writebackRequirements.map((item) => `- ${item}`).join("\n"),
+    "",
+    "## 9. 异常处理",
+    "- Handoff 内容不完整时，先通过 pedit_get_canvas_state/claimed task 补齐上下文；仍无法补齐则标记任务失败并说明原因。",
+    "- 结果没有 task_id、task_id 不匹配、图片不可读、尺寸/质量不合格时，不要写入版本树。",
     !hasRegions
       ? "本任务没有用户圈选区域：请按整图修图流程处理，不要把局部圈选当成限制，也不要为了处理而手工造 mask/选区。"
       : "",
-    "请接手这个 Pedit 修图任务：先调用 pedit_get_canvas_state，再调用 pedit_claim_next_task。",
-    hasRegions && selectionSemantics === "strict_local"
-      ? "如果是 strict_local 局部改色任务，请先调用 pedit_run_local_fast_path；如果 ok=true，结果已写回，无需再调用 image2。"
-      : "无选区或非 strict_local 任务不要先走局部 fast path；请直接按 sourceNodeIds 和 codexPrompt 使用整图 image2 编辑流程。",
-    hasRegions
-      ? "如果 pedit_run_local_fast_path 返回 unsupported，或任务不是可支持的局部改色，再按 sourceNodeIds、regions、maskPath/maskUrl、codexPrompt 调用 Codex image2 完成修图。"
-      : "如果用户没有圈选区域，regions/maskPath/maskUrl 为空是正常情况；请不要因此退化成手工选区流程。",
-    "image2 原始输出只能作为中间预览；如果你进行了放大、融合、裁剪、后处理或质量修复，必须把最终候选图重新展示/验收。",
-    "最终写回 Pedit 的图片必须是你最终展示和验收的同一张图片，不要让 Codex 中的预览图和 Pedit 结果不一致。",
-    "写回前请自检画质、尺寸、主体一致性、选区准确性和整体和谐度；不合格不要写入版本树。",
-    "完成后调用 pedit_write_generation_result 写回结果，Pedit 会自动监听并生成新版本节点。"
   ].filter(Boolean).join("\n");
 }
+
+const handoffImageReference = (imageUrl: string) => {
+  if (!imageUrl) {
+    return "(missing)";
+  }
+
+  if (imageUrl.startsWith("data:")) {
+    return "(data URL stored in Pedit task; omitted from handoff)";
+  }
+
+  return imageUrl;
+};
+
+const selectionPreserveRequirement = (
+  selectionSemantics: CanvasSelectionSemantics,
+  hasRegions: boolean
+) => {
+  if (!hasRegions || selectionSemantics === "global_edit") {
+    return "没有硬性局部选区时，按整图编辑理解用户意图，但仍保留无关细节。";
+  }
+
+  if (selectionSemantics === "strict_local") {
+    return "选区外内容必须尽量保持完全不变；仅修改用户指定目标像素。";
+  }
+
+  if (selectionSemantics === "contextual_inpaint") {
+    return "选区是问题锚点，允许为自然修复调整窄范围过渡区，但不能破坏无关主体和整体构图。";
+  }
+
+  return "选区是主要目标，可做少量周边融合以获得自然结果，但无关区域应保持稳定。";
+};
 
 const maskAssetsInstruction = (selectionSemantics: CanvasSelectionSemantics) => {
   if (selectionSemantics === "strict_local") {

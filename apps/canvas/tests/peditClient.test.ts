@@ -156,6 +156,53 @@ describe("Pedit region precision prompts", () => {
     expect(handoffPrompt).toContain("contextual_inpaint 表示选区是问题锚点，不是硬边界");
   });
 
+  it("generates a structured handoff contract with task, version, image, selection, references, and writeback requirements", () => {
+    const handoffPrompt = buildManualHandoffPrompt({
+      taskId: "task-structured",
+      type: "region_edit",
+      projectName: "Pedit Alpha 项目",
+      currentVersionId: "source-a",
+      sourceNodes: [node("/runtime-assets/source-a.png")],
+      instruction: "整图要求: 保留人物主体，把背景换成参考图中的室内场景; 区域 1: 修复手部",
+      selectionSemantics: "contextual_inpaint",
+      hasRegions: true,
+      regions: [
+        {
+          id: "region-1",
+          label: "区域 1",
+          points: [
+            { x: 10, y: 20 },
+            { x: 30, y: 40 }
+          ],
+          bounds: { x: 10, y: 20, width: 20, height: 20 },
+          instruction: "修复手部"
+        }
+      ],
+      referenceImages: [
+        {
+          name: "room-reference.png",
+          imageUrl: "/runtime-assets/room-reference.png"
+        }
+      ]
+    });
+
+    expect(handoffPrompt).toContain("## 1. 任务索引");
+    expect(handoffPrompt).toContain("task_id: task-structured");
+    expect(handoffPrompt).toContain("project_name: Pedit Alpha 项目");
+    expect(handoffPrompt).toContain("current_version_id: source-a");
+    expect(handoffPrompt).toContain("image_ref=/runtime-assets/source-a.png");
+    expect(handoffPrompt).toContain("## 3. 用户原始指令");
+    expect(handoffPrompt).toContain("## 4. 选区信息");
+    expect(handoffPrompt).toContain("region-1");
+    expect(handoffPrompt).toContain("## 5. 参考图信息");
+    expect(handoffPrompt).toContain("room-reference.png");
+    expect(handoffPrompt).toContain("## 6. 需要保留的内容");
+    expect(handoffPrompt).toContain("## 7. 输出要求");
+    expect(handoffPrompt).toContain("## 8. 结果回写要求");
+    expect(handoffPrompt).toContain("必填字段：taskId、imageUrl、name、summary、edgeLabel");
+    expect(handoffPrompt).toContain("## 9. 异常处理");
+  });
+
   it("routes no-region edit handoff as whole-image editing", () => {
     const prompt = buildCodexPrompt({
       taskId: "task-global",
